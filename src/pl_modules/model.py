@@ -1,20 +1,37 @@
+import itertools
 from typing import Any, Dict, Sequence, Tuple, Union
+from typing import List
 
 import hydra
 import omegaconf
 import pytorch_lightning as pl
 import torch
+import wandb
 from omegaconf import DictConfig
+from pytorch_lightning.metrics import Accuracy
 from torch.optim import Optimizer
 
 from src.common.utils import PROJECT_ROOT
+from src.common.utils import iterate_elements_in_batches
+from src.common.utils import render_images
+from src.pl_modules.simple_cnn import CNN
+from torch.nn import functional as F
+
 
 class MyModel(pl.LightningModule):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()
-        self.save_hyperparameters() # populate self.hparams with args and kwargs automagically!
+        self.save_hyperparameters()  # populate self.hparams with args and kwargs automagically!
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        self.cnn = CNN(
+            input_channels=self.hparams.input_channels, n_feature=self.hparams.n_feature
+        )
+
+        metric = Accuracy()
+        self.train_accuracy = metric.clone()
+        self.test_accuracy = metric.clone()
+
+    def forward(self, images: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
         """
         Method for the forward pass.
         'training_step', 'validation_step' and 'test_step' should call
@@ -22,37 +39,52 @@ class MyModel(pl.LightningModule):
         Returns:
             output_dict: forward output containing the predictions (output logits ecc...) and the loss if any.
         """
-        raise NotImplementedError
+        return self.cnn(images)
 
-    def step(self, batch: Any, batch_idx: int):
-        raise NotImplementedError
+    def step(self, x: torch.Tensor, y: torch.Tensor, batch_idx: int):
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        return {"logits": logits, "loss": loss}
 
     def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
-        loss = self.step(batch, batch_idx)
+        x, y = batch
+        out_step = self.step(x, y, batch_idx)
+        self.train_accuracy(torch.softmax(out_step["logits"], dim=-1), y)
         self.log_dict(
-            {"train_loss": loss},
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
+            {"train_loss": out_step["loss"], "train_acc": self.train_accuracy}
         )
-        return loss
+        return out_step["loss"]
 
-    def validation_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
-        loss = self.step(batch, batch_idx)
-        self.log_dict(
-            {"val_loss": loss},
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
-        return loss
+    # def validation_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+    #     loss = self.step(batch, batch_idx)
+    #     self.log_dict(
+    #         {"val_loss": loss},
+    #         on_step=False,
+    #         on_epoch=True,
+    #         prog_bar=True,
+    #     )
+    #     return loss
 
-    def test_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
-        loss = self.step(batch, batch_idx)
-        self.log_dict(
-            {"test_loss": loss},
-        )
-        return loss
+    def test_step(self, batch: Any, batch_idx: int) -> Dict[str, torch.Tensor]:
+        x, y = batch
+        out_step = self.step(x, y, batch_idx)
+        self.test_accuracy(torch.softmax(out_step["logits"], dim=-1), y)
+        self.log_dict({"test_loss": out_step["loss"], "test_acc": self.test_accuracy})
+        return {"image": x, "y_true": y, **out_step}
+
+    def test_epoch_end(self, outputs: List[Any]) -> None:
+        images = []
+
+        for output_element in itertools.islice(
+            iterate_elements_in_batches(
+                outputs=outputs, elements_to_unbatch=["image", "logits", "y_true"]
+            ),
+            20,
+        ):
+            rendered_images = render_images(output_element["image"], autoshow=False)
+            caption = f'y_pred: {output_element["logits"].argmax(-1)} [gt: {output_element["y_true"]}]'
+            images.append(wandb.Image(rendered_images, caption=caption))
+        self.logger.experiment.log({"Test imgaes:": images})
 
     def configure_optimizers(
         self,
@@ -79,7 +111,6 @@ class MyModel(pl.LightningModule):
             self.hparams.optim.lr_scheduler, optimizer=opt
         )
         return [opt], [scheduler]
-
 
 
 @hydra.main(config_path=str(PROJECT_ROOT / "conf"), config_name="default")

@@ -1,12 +1,15 @@
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
+from typing import Sequence
 
 import dotenv
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import pytorch_lightning as pl
+import torchvision
+from matplotlib import pyplot as plt
 from omegaconf import DictConfig, OmegaConf
 
 
@@ -96,3 +99,46 @@ assert (
 ), "You must configure the PROJECT_ROOT environment variable in a .env file!"
 
 os.chdir(PROJECT_ROOT)
+
+
+def render_images(
+    batch: torch.Tensor, nrow=8, title: str = "Images", autoshow: bool = True
+) -> np.ndarray:
+    """
+    Utility function to render and plot a batch of images in a grid
+    :param batch: batch of images
+    :param nrow: number of images per row
+    :param title: title of the image
+    :param autoshow: if True calls the show method
+    :return: the image grid
+    """
+    image = (
+        torchvision.utils.make_grid(
+            batch.detach().cpu(), nrow=nrow, padding=2, normalize=True
+        )
+        .permute((1, 2, 0))
+        .numpy()
+    )
+
+    if autoshow:
+        plt.figure(figsize=(8, 8))
+        plt.axis("off")
+        plt.title(title)
+        plt.imshow(image)
+        plt.show()
+    return image
+
+
+def iterate_elements_in_batches(
+    outputs: List[Dict[str, torch.Tensor]],
+    elements_to_unbatch: Sequence[str] = (),
+) -> Dict[str, torch.Tensor]:
+    """
+    Iterate over elements across multiple batches in order, independently to the
+    size of each batch
+    :param outputs: a list of outputs dictionaries
+    :return: yields one element at the time
+    """
+    for output in outputs:
+        for i in range(output[elements_to_unbatch[0]].shape[0]):
+            yield {key: output[key][i] for key in elements_to_unbatch}

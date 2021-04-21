@@ -1,1 +1,3 @@
 _target_: src.pl_modules.model.MyModel
+input_channels: 1
+n_feature: 8

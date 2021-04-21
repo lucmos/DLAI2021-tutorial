@@ -43,7 +43,7 @@ class MyDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
 
         self.train_dataset: Optional[Dataset] = None
-        self.val_datasets: Optional[Sequence[Dataset]] = None
+        # self.val_datasets: Optional[Sequence[Dataset]] = None
         self.test_datasets: Optional[Sequence[Dataset]] = None
 
     def prepare_data(self) -> None:
@@ -54,10 +54,10 @@ class MyDataModule(pl.LightningDataModule):
         # Here you should instantiate your datasets, you may also split the train into train and validation if needed.
         if stage is None or stage == "fit":
             self.train_dataset = hydra.utils.instantiate(self.datasets.train)
-            self.val_datasets = [
-                hydra.utils.instantiate(dataset_cfg)
-                for dataset_cfg in self.datasets.val
-            ]
+            # self.val_datasets = [
+            #     hydra.utils.instantiate(dataset_cfg)
+            #     for dataset_cfg in self.datasets.val
+            # ]
 
         if stage is None or stage == "test":
             self.test_datasets = [
@@ -74,17 +74,17 @@ class MyDataModule(pl.LightningDataModule):
             worker_init_fn=worker_init_fn,
         )
 
-    def val_dataloader(self) -> Sequence[DataLoader]:
-        return [
-            DataLoader(
-                dataset,
-                shuffle=False,
-                batch_size=self.batch_size.val,
-                num_workers=self.num_workers.val,
-                worker_init_fn=worker_init_fn,
-            )
-            for dataset in self.val_datasets
-        ]
+    # def val_dataloader(self) -> Sequence[DataLoader]:
+    #     return [
+    #         DataLoader(
+    #             dataset,
+    #             shuffle=False,
+    #             batch_size=self.batch_size.val,
+    #             num_workers=self.num_workers.val,
+    #             worker_init_fn=worker_init_fn,
+    #         )
+    #         for dataset in self.val_datasets
+    #     ]
 
     def test_dataloader(self) -> Sequence[DataLoader]:
         return [
